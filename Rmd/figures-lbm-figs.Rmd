@@ -1,0 +1,1041 @@
+---
+title: "Comparison of length based idicators and methods"
+subtitle: ""
+author: "L Kell"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+       includes:
+            in_header: header.tex 
+---
+
+
+```{r, knitr, eval=TRUE, echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo=FALSE)
+
+library(knitr)
+
+opts_chunk$set(comment   =NA, 
+               warning   =FALSE, 
+               message   =FALSE, 
+               error     =FALSE, 
+               echo      =FALSE,
+               fig.width =8, 
+               fig.height=6,
+               cache     =TRUE, 
+               fig.path  ="figs/",
+               cache.path="cache/figs/",
+               dev        =c("png"))
+
+iFig=0
+iTab=0
+```
+
+\newpage
+```{r, pkgs} 
+library(FLCore) 
+library(FLBRP)
+library(FLasher)
+library(FLife)
+library(mydas)
+library(ggplotFL) 
+
+library(ggridges)
+library(ggExtra)
+library(ggside)
+library(ggnewscale)
+library(ggh4x)
+
+library(viridis)
+
+library(plyr)
+library(dplyr)
+library(reshape)
+library(GGally)
+library(ggpubr)
+
+library(statcomp)
+library(zoo)
+library(Metrics)
+
+library(popbio)
+
+library(LBSPR)
+library(spatstat)
+
+library(readxl)
+
+library(statcomp)
+
+library(Metrics)
+
+library(plotrix)
+```
+
+
+```{r, theme}
+theme_custom<-function(sizeScale=1.0,angle.x=0){
+  theme_bw() +
+    theme(
+      legend.position   ="bottom",
+      legend.text       =element_text(size=sizeScale*12),
+      legend.title      =element_text(size=sizeScale*16),
+      axis.ticks        =element_line(         colour="grey70"),
+      axis.text         =element_text(         colour="black"),
+      axis.text.x       =element_text(size=sizeScale*12),
+      axis.text.x.bottom=element_text(size=sizeScale*12,                         angle=angle.x,hjust=1), 
+      axis.text.y       =element_text(size=sizeScale*12),
+      axis.title.x      =element_text(size=sizeScale*16), 
+      axis.title.y      =element_text(size=sizeScale*16),
+      panel.border      =element_rect(         colour="black", fill=NA),
+      panel.background  =element_rect(         colour =NA,     fill="white",),
+      panel.grid.major  =element_line(         colour ="grey80"),
+      panel.grid.minor  =element_line(         colour ="grey90"),
+      strip.text.x      =element_text(size=sizeScale*16), 
+      strip.text.y      =element_text(size=sizeScale*16),
+      strip.background  =element_rect(                         fill="white"))}
+
+theme_set(theme_custom())
+```
+
+```{r, source}
+source("../R/skill.R")
+
+# source("C:/flr/FLSkill/R/generics.R")
+# source("C:/flr/FLSkill/R/plots.R")
+# source("C:/flr/FLSkill/R/utils.R")
+# source("C:/flr/FLSkill/R/classification.R")
+
+
+tryIt<-function(x, silent=TRUE) {
+  rtn=try(x, silent=silent)
+  
+  if ("try-error" %in% class(rtn)) 
+    return(NULL)
+  
+  return(rtn)}
+
+setGeneric("roc2", function(state, ind, ...) {
+  standardGeneric("roc2")})
+
+setMethod("roc2",
+          signature(state = "numeric", ind = "numeric"),
+          function(state, ind, ...) {
+            order = order(ind, decreasing = TRUE)
+            state = state[order]
+            ind = ind[order]
+            label = state > 1
+            
+            cumn = seq(1, length(label))
+            
+            TPR = cumsum(label) / sum(label)
+            FPR = cumsum(!label) / sum(!label)
+            
+            TP = cumsum(label)
+            FP = cumsum(!label)
+            
+            TN = sum(!label) - FP
+            FN = sum(label) - TP
+            
+            TSS = (TP / (TP + FN) - FP / (FP + TN))
+            
+            result_df = data.frame(
+              state = state,
+              label = label,
+              ind = ind,
+              TPR = TPR,
+              FPR = FPR,
+              TP = TP,
+              TN = TN,
+              FP = FP,
+              FN = FN,
+              TSS = TSS,
+              order = order
+            )
+            
+            return(result_df)})
+```
+
+```{r}
+species_colours=c("Sprat"="#1b9e77", 
+                    "Turbot"="#d95f02", 
+                    "Pollack"="#7570b3", 
+                    "Bigeye"="#e7298a", 
+                    "Ray"="#66a61e")
+```
+
+## Operating Model
+
+```{r, oms}
+load(file.path("../data/om","design.RData")) 
+design=cbind(.id=seq(dim(design)[1]),design)
+design=cbind(design,data.frame(Scenario=rep(c("Base Case","h=0.9","Domed","n=100","Low M","Immature"),15)))
+
+spp=c("Pollack","Turbot","Ray","Sprat","Bigeye")
+names(spp)=c("Pollachius pollachius","Psetta maxima","Raja clavata","Sprattus sprattus sprattus","Thunnus obesus")
+  
+design$Species=factor(design$Species,levels=c("Pollachius pollachius",
+                                              "Psetta maxima",
+                                              "Raja clavata",
+                                              "Sprattus sprattus sprattus",
+                                              "Thunnus obesus")[c(4,2,1,5,3)],
+                               labels=c("Pollack","Turbot","Ray","Sprat","Bigeye")[c(4,2,1,5,3)])
+
+main=seq(1,30,6)
+
+load(file.path("../data/om","om.1.RData"))
+oms=FLStocks(om)
+eqs=FLBRPs(eq)
+
+load(file.path("../data/om","om.7.RData"))
+oms[[2]]=om
+eqs[[2]]=eq
+
+load(file.path("../data/om","om.13.RData"))
+oms[[3]]=om
+eqs[[3]]=eq
+
+load(file.path("../data/om","om.19.RData"))
+oms[[4]]=om
+eqs[[4]]=eq
+
+load(file.path("../data/om","om.25.RData"))
+oms[[5]]=om
+eqs[[5]]=eq
+
+names(oms)=c("Pollack","Turbot","Ray","Sprat","Bigeye")
+names(eqs)=c("Pollack","Turbot","Ray","Sprat","Bigeye")
+oms=oms[c(4,2,1,5,3)]
+eqs=eqs[c(4,2,1,5,3)]
+
+save(oms,eqs,    file=file.path("../data/results","base.RData"))
+save(design,main,file=file.path("../data/results","design.RData"))
+```
+
+```{r, lfds}
+load(file.path("../data/om","lfd.1.RData"))
+lfds=FLQuants(lfd)
+
+load(file.path("../data/om","lfd.7.RData"))
+lfds[[2]]=lfd
+
+load(file.path("../data/om","lfd.13.RData"))
+lfds[[3]]=lfd
+
+load(file.path("../data/om","lfd.19.RData"))
+lfds[[4]]=lfd
+
+load(file.path("../data/om","lfd.25.RData"))
+lfds[[5]]=lfd
+names(lfds)=c("Pollack","Turbot","Ray","Sprat","Bigeye")
+lfds=lfds[c(4,2,1,5,3)]
+
+save(lfds,file=file.path("../data/results","lfds.RData"))
+
+lmax=maply(data.frame(Species=names(lfds)), function(Species) max(an(dimnames(lfds[[Species]])[[1]])))[c(4,5,2,3,1)]
+
+save(design,main,lmax,file=file.path("../data/results","design.RData"))
+```
+
+```{r, rfpts}
+load(file.path("../data/om","design.RData"))
+
+M=mdply(data.frame(.id=seq(dim(design)[1])), function(.id) { 
+            load(file.path("../data/om",paste("om",.id,"RData",sep=".")))
+            lh=lhs[[ac(design[.id,"Species"])]]
+            
+            data.frame(M=mean(m(eq)[ac(ceiling(lh["sel1"]):floor(vonB(length=lh["linf"]*0.9,params=lh)))]))})
+save(M,file=file.path("../data/results","M.RData"))
+
+ref=mdply(data.frame(.id=seq(dim(design)[1])), function(.id) { 
+            load(file.path("../data/om",paste("om",.id,"RData",sep=".")))
+  
+            cbind(design[.id,],"M"=M[.id,"M"],model.frame(FLQuants(
+                                 Fbar =fbar(iter(om,1)),
+                                 Z    =fbar(iter(om,1))+M[.id,"M"],
+                                 FFMSY=fbar(iter(om,1))%/%refpts(eq)["msy","harvest"]),drop=TRUE))})
+save(ref,file=file.path("../data/results","ref.RData"))
+
+msy=mdply(data.frame(.id=seq(dim(design)[1])), function(.id) {
+  load(file.path("../data/om",paste("om",.id,"RData",sep=".")))
+  fmsy =an(refpts(eq)["msy","harvest"]) 
+  bmsy =an(refpts(eq)["msy","ssb"])
+  b0   =an(refpts(eq)["virgin","ssb"])
+  msy  =an(refpts(eq)["msy","yield"])
+  shape=bmsy/b0
+
+  lh=lhs[[ac(design[.id,"Species"])]]
+  M =mean(m(eq)[ac(ceiling(lh["sel1"]):floor(vonB(length=lh["linf"]*0.9,params=lh)))])
+  
+  cbind(design[.id,],data.frame(M=M,msy=msy,bmsy=bmsy,fmsy=fmsy,hmsy=1-exp(-fmsy),b0=b0,shape=shape))})
+
+save(msy,file=file.path("../data/results","msy.RData"))
+```
+
+
+```{r, lhat}
+load(file.path("../data/results","design.RData"))
+load(file.path("../data/results","M.RData"))
+load(file.path("../data/results","ref.RData"))
+load(file.path("../data/results","lbi.RData"))
+load(file.path("../data/results","lime.RData"))
+load(file.path("../data/results","lbspr.RData"))
+load(file.path("../data/results","lbspr2.RData"))
+
+lbi  =merge(lbi,   ref)
+lime =merge(lime,  ref)
+lbspr=merge(lbspr2,ref)
+
+lhat=rbind(
+     cbind(What="LCC Absolute"         ,transmute(lbi,  .id=.id,iter=as.integer(iter),year=as.integer(year),data=z)),
+     cbind(What="LCC"        ,transmute(lbi,   .id=.id,iter=as.integer(iter),year=as.integer(year),data=(z-M)/M)),
+     cbind(What="LCC Lmax Absolute"    ,transmute(lbi,
+                                               .id=.id,iter=as.integer(iter),year=as.integer(year),data=as.numeric(z.lmax))),
+     cbind(What="LCC Lmax"    ,transmute(lbi,  .id=.id,iter=as.integer(iter),year=as.integer(year),data=(as.numeric(z.lmax)-M)/M)),
+     cbind(What="BH Absolute" ,transmute(lbi, 
+                                               .id=.id,iter=as.integer(iter),year=as.integer(year),data=as.numeric(z.bh))),
+     cbind(What="BH"          ,transmute(lbi,  .id=.id,iter=as.integer(iter),year=as.integer(year),data=(as.numeric(z.bh)-M)/M)),
+     cbind(What="LIME"        ,transmute(lime, .id=.id,iter=as.integer(iter),year=as.integer(year),data=FFmsy)),
+     cbind(What="LBSPR"       ,transmute(lbspr,.id=.id,iter=as.integer(iter),year=as.integer(year),data=fm)),
+     cbind(What="1/Lmean"     ,transmute(lbi, 
+                                         .id=.id,iter=as.integer(iter),year=as.integer(year),data=1/lmean)))
+lhat=merge(lhat,design,by=".id")
+l80 =ddply(subset(lhat,year%in% 79:81),  .(Species,Scenario,CV,iter,What), with,data.frame(l80 =mean(data)))
+l115=ddply(subset(lhat,year%in%114:116), .(Species,Scenario,CV,iter,What), with,data.frame(l115=mean(data)))
+
+lhat=merge(lhat,l80, by=c("Species","Scenario","CV","What","iter"))
+lhat=merge(lhat,l115,by=c("Species","Scenario","CV","What","iter"))
+lhat=subset(lhat,What%in%c("1/Lmean","LCC","BH","LBSPR","LIME"))
+lhat$What=factor(lhat$What,levels=c("1/Lmean","LCC","BH","LBSPR","LIME")) 
+lhat=subset(lhat,!is.na(data))
+lhat=merge(lhat,ref[,c(".id","year","FFMSY")])
+
+phat   =ddply(lhat, .(Species,Scenario,CV,What,year), with, quantile(data,     probs=c(0.025,0.25,0.5,0.75,0.975), na.rm=T))
+prel   =ddply(lhat, .(Species,Scenario,CV,What,year), with, quantile(data/l80, probs=c(0.025,0.25,0.5,0.75,0.975), na.rm=T))
+prel115=ddply(lhat, .(Species,Scenario,CV,What,year), with, quantile(data/l115,probs=c(0.025,0.25,0.5,0.75,0.975), na.rm=T))
+
+save(lhat,phat,prel,prel115,file=file.path("../data/results","lhat.RData"))  
+```
+
+
+```{r, fig_2, fig.width=9,fig.height=8}
+theme_set(theme_custom())
+
+dat=transform(lh[,c(1:3,8,6)],linf=log(linf),k=log(k),l50=log(l50))
+dat$Species=factor(dat$species,levels=c("Sprattus sprattus sprattus",
+                                        "Psetta maxima",
+                                        "Pollachius pollachius",
+                                        "Thunnus obesus",
+                                        "Raja clavata"),
+                               labels=c("Pollack","\nBigeye","Turbot","\nSprat","Ray"))
+
+my_smooth=function(data, mapping, ...) {
+  ggplot(data=data, mapping=mapping) +
+    geom_point(..., size=2.0, alpha=0.6) +
+    geom_smooth(..., method="lm", se=FALSE, colour="grey50", linewidth=0.75)}
+
+my_histogram=function(data, mapping, ...) {
+  ggplot(data=data, mapping=mapping) +
+    geom_histogram(..., colour="grey", alpha=1.80) + 
+    theme(axis.text.y       =element_blank(),     
+          axis.ticks.y      =element_blank(),    
+          panel.grid.major.y=element_blank())}
+
+fig_2=ggpairs(  
+  dat[,-1],
+  columnLabels=c("log(L[infinity])", "log(k)", "log(L[50])", "b", "Species"),
+  labeller=label_parsed,
+  mapping=ggplot2::aes(fill=Species, col=Species),
+  lower=list(continuous=wrap(my_smooth)),
+  upper=list(continuous=wrap(my_smooth)),
+  diag=list(continuous=wrap(my_histogram)),
+  title="Relationships between life history parameters")+
+  scale_colour_viridis_d(option="D")+
+  scale_fill_viridis_d( option="D") 
+
+  fig_2[5, 1]=fig_2[5, 1]+ 
+    theme(axis.text.y       =element_blank(),
+          axis.ticks.y      =element_blank(),
+          panel.grid.major.y=element_blank(),
+          axis.text.x.bottom=element_text(angle=45))
+  fig_2[5, 2]=fig_2[5, 2]+
+    theme(axis.text.x.bottom=element_text(angle=45))
+  fig_2[5, 3]=fig_2[5, 3]+
+    theme(axis.text.x.bottom=element_text(angle=45))
+  fig_2[5, 4]=fig_2[5, 4]+
+    theme(axis.text.x.bottom=element_text(angle=45))
+  fig_2[5, 5]=fig_2[5, 5]+
+    theme(axis.text.x.bottom=element_text(hjust=0.5))
+    
+fig_2
+
+ggsave(file.path("../tex/fig_2.png"), fig_2, width=9, height=8, dpi=300)
+```
+
+**Figure `r iFig=iFig+1; iFig`** Life history parameters and the correlations between them.
+
+```{r, fig_3, fig.width=12,fig.height=6}
+ymsy<-function(x) refpts(x)["msy","yield"] 
+rmsy<-function(x) refpts(x)["msy","rec"]
+
+mets=list(RMSY =function(x, y) rec(  x)/ rmsy(y),
+             YMSY =function(x, y) catch(x)/ ymsy(y),
+             SBMSY=function(x, y) ssb(  x)/sbmsy(y),
+             FMSY =function(x, y) fbar( x)/ fmsy(y))
+
+fqs=FLQuants(lapply(mets, function(m)
+  dbind(FLQuants(Map(function(x, y) m(x, y), x=oms, y=eqs)), dim=3)))
+
+fig_3=plot(fqs, iter="1", probs=c(0.025, 0.5, 0.975)) +
+  ylim(c(0, NA))+
+  geom_hline(aes(yintercept=1), linetype="dashed", colour="black", size=0.8)+
+  facet_grid(factor(ac(qname), 
+              levels=c("FMSY", "RMSY", "SBMSY", "YMSY"),
+              labels=c(expression(F[MSY]), expression(R[MSY]), expression(SSB[MSY]),
+                       expression(Y[MSY])))~unit,
+    scale="free",labeller=label_parsed)+
+  scale_x_continuous(limits=c(50, 120), breaks=seq(60, 120, by=20)) + # Add regular x-axis ticks
+  theme_custom()+
+  theme(legend.position="none")+
+  scale_colour_manual(values=c("black","black","black","black","black","red"))+
+  scale_fill_manual(values=rep("grey75",6))+
+  #scale_fill_viridis_d( option="D") 
+  labs(
+    title="Operating Models",
+    x="Year",
+    y="",
+    caption="Dashed line indicates MSY refererence level")
+  
+fig_3
+
+ggsave(file.path("../tex/fig_3.png"), fig_3, width=12, height=6, dpi=300)
+```
+
+**Figure `r iFig=iFig+1; iFig`** Operating Models for Base Case.
+
+
+## Observation Error Model
+ 
+```{r, fig_4, fig.width=10,fig.height=5} 
+load(file.path("../data/results","design.RData"))
+load(file.path("../data/results","lfds.RData"))
+
+lmodeFn<-function(len,n,bin=25) {
+  
+  dat=data.frame(bin=cut(len,breaks=bin),n=n)
+  res=ddply(dat,.(bin), with, data.frame(freq=sum(n)))
+  res=as.character(subset(res,freq==max(freq))[1,"bin"])
+  unbin(res)$mid}
+
+dat=subset(transform(ldply(lfds, as.data.frame),lustrum=5*(year%/%5)),year>=60) 
+dat=subset(dat,lustrum%in%c(60,100, 120))
+
+dt2=ddply(dat,.(.id,lustrum), with, {
+  lc=lmodeFn(len,data)*0.5
+  data.frame(lc   =lc,
+             lmean=weighted.mean(len,data*(len>=lc)))})
+
+#dat$lustrum=factor(ac(dat$lustrum), levels=ac(c(60,100,120)),labels=c("Initial","Overfished","Recovered"))
+fig_4=ggplot(dat,aes(x=len,weight=data))+
+  geom_histogram(bins=25,fill="grey75",col="grey10")+
+  #coord_flip()+
+  #scale_x_reverse()+
+  facet_grid(lustrum~
+             factor(.id,levels=c("Sprat","Turbot","Pollack","Bigeye","Ray")),scale="free")+
+  #geom_vline(aes(xintercept=lc),    data=dt2,linetype=1)+
+  geom_vline(aes(xintercept=lmean), data=dt2,col="blue")+
+  theme_custom()+
+  theme(legend.position="none", 
+        axis.title.y=element_blank(), 
+        axis.text.y =element_blank(), 
+        axis.ticks.y=element_blank())+
+  labs(title  ="Observation Error Model",
+       x      ="Length (cm)",
+       y      ="",
+       caption=expression("Vertical line shows" ~ L[mean]))
+
+fig_4
+
+ggsave(file.path("../tex/fig_4.png"), fig_4, width=10, height=5, dpi=300)
+```
+
+**Figure `r iFig=iFig+1; iFig`** Length data
+
+## Length based approaches
+
+```{r, fig_5, fig.width=10, fig.height=8}
+key=data.frame(What=c("1/Lmean","LCC","BH","LBSPR","LIME"),
+               Type=c("Indicator","Legacy","Legacy","Modern","Modern"))
+
+phat=merge(phat,key)
+
+fig_5=ggplot(subset(phat,Scenario%in%"Base Case"))+  
+  facet_nested(factor(Species,levels=c("Sprat","Turbot","Pollack","Bigeye","Ray"))~Type+What,
+               scale="free", nest_line=TRUE, solo_line=TRUE,labeller=label_wrap_gen(width=10))+
+  geom_ribbon(aes(year, ymin=`2.5%`, ymax=`97.5%`), alpha=0.3, fill="grey75") +
+  geom_line(aes(year,y=`50%`)) +
+  geom_smooth(aes(year, y=`2.5%`),  colour="grey10", linewidth=0.2, se=FALSE, span=0.1) + 
+  geom_smooth(aes(year, y=`97.5%`), colour="grey10", linewidth=0.2, se=FALSE, span=0.2) + 
+  geom_line(aes(year, y=`50%`),     colour="grey10", linewidth=0.5)+ 
+  geom_line(aes(year, FFMSY, linetype=1, linewidth=0.8), 
+            dat=subset(ref, .id %in% subset(design, Scenario=="Base Case" & CV==0.3)$.id)[,c("year","FFMSY")],
+            colour="red", linewidth=0.8, linetype=1) +
+  geom_hline(aes(yintercept=1, linetype="Target"), colour="darkred", size=0.6) + 
+  xlab("Year") + ylab("Relative Fishing Pressure") +
+  geom_vline(aes(xintercept=100), linetype="dashed") +
+  scale_x_continuous(limits=c(60,120), breaks=seq(60,120,20))+
+  coord_cartesian(ylim=c(0,3))+ 
+  scale_linetype_manual(name="", 
+                       values=c("Reference"=2, "Target"=1),
+                       labels=c("Reference"="FMSY Reference", "Target"="Target Level"))+
+  theme_custom()+
+  theme(legend.position="bottom")  
+
+ggsave(file.path("../tex/fig_5.png"), fig_5, width=12, height=8, dpi=300)
+fig_5
+```
+
+**Figure `r iFig=iFig+1; iFig`.** Example of length based indicators and estimators for **Base Case by species**.
+
+
+```{r, fig_5b, fig.width=10, fig.height=8}
+fig_5b=ggplot(subset(phat,Species=="Pollack"))+  
+  facet_nested(factor(Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                             labels=c("Reference\nCase","h=0.9","Low M","Domed","Immature","n=100"))~
+                 Type+What,
+               scale="free", nest_line=TRUE, solo_line=TRUE,labeller=label_wrap_gen(width=10))+
+  geom_ribbon(aes(year, ymin=`2.5%`, ymax=`97.5%`), alpha=0.3, fill="grey75") +
+  geom_line(aes(year,y=`50%`)) +
+  geom_smooth(aes(year, y=`2.5%`),  colour="grey10", linewidth=0.5, se=FALSE, span=0.1) + 
+  geom_smooth(aes(year, y=`97.5%`), colour="grey10", linewidth=0.5, se=FALSE, span=0.2) + 
+  geom_line(aes(year, y=`50%`),     colour="grey10", linewidth=0.8)+ 
+  geom_line(aes(year, FFMSY, linetype="Reference"), 
+            dat=subset(ref, .id %in% subset(design, Scenario=="Base Case" & CV==0.3)$.id)[,c("year","FFMSY")],
+            colour="red", size=0.8) +
+  geom_hline(aes(yintercept=1, linetype="Target"), colour="darkred", size=0.6) + 
+  xlab("Year") + ylab("Relative Fishing Pressure") +
+  geom_vline(aes(xintercept=100), linetype="dashed") +
+  scale_x_continuous(limits=c(60,120), breaks=seq(60,120,20))+
+  coord_cartesian(ylim=c(0,3))+ 
+  scale_linetype_manual(name="", 
+                       values=c("Reference"=2, "Target"=1),
+                       labels=c("Reference"="FMSY Reference", "Target"="Target Level"))+
+  theme_custom()+
+  theme(legend.position="bottom")
+
+fig_5b
+```
+
+**Figure `r iFig=iFig; iFig`.a.** Example of length based indicators and estimators for **pollack across scenarios**.
+
+## Analysis
+
+```{r, figRoc, fig.height=10,fig.width=10}
+load(file.path("../data/results","lhat.RData"))
+
+rocs=mdply(data.frame(Lag=0),function(Lag) {
+  ddply(subset(lhat, year %in% 60:120 & !is.na(FFMSY) & !is.na(data)), .(Species,What,Scenario,CV), 
+        function(x) {
+          n=length(x$FFMSY)
+          if(Lag==0) tryIt(rocFn(x$FFMSY>1,           x$data))
+            else     tryIt(rocFn(x$FFMSY[1:(n-Lag)]>1,x$data[(Lag+1):n]))})})
+rank=ddply(rocs, .(Species,What,Scenario,CV), with, auc(TPR,FPR)) 
+rank=ddply(rank, .(What), with, mean(V1)) 
+rocs=transform(rocs,Scenario=factor(Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                               labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100")),
+                      What    =factor(What,    levels=ac(rank[rev(order(rank[,2])),1]),
+                                               labels=ac(rank[rev(order(rank[,2])),1])))
+
+tss=ddply(subset(rocs, What%in%c("1/Lmean","LCC","BH","LBSPR","LIME")), 
+          .(Species,Scenario,CV,What), with, data.frame(TPR=TPR[min(abs(ind-1))==abs(ind-1)][1],
+                                                        FPR=FPR[min(abs(ind-1))==abs(ind-1)][1]))
+
+ts2=mdply(data.frame(Lag=0),function(Lag) {
+  ddply(subset(lhat, year %in% 60:120 & !is.na(FFMSY) & !is.na(data)), .(Species,What,Scenario,CV), 
+        function(x) {
+          n=length(x$FFMSY)
+          if(Lag==0) tryIt(skillSummary( x$FFMSY>1,           x$data))
+            else     tryIt(skillSummary( x$FFMSY[1:(n-Lag)]>1,x$data[(Lag+1):n]))})})
+
+dat=subset(rocs,What%in%c("1/Lmean","LCC","BH","LBSPR","LIME"))
+ggplot(dat)+
+  geom_path( aes(FPR,TPR,group=paste(Scenario,CV)),col="grey")+
+  geom_path( aes(FPR,TPR),data=subset(dat,Scenario=="Reference"&CV==0.3))+
+  geom_point(aes(FPR,TPR),data=subset(tss,Scenario=="Reference"&CV==0.3),size=5)+
+  geom_point(aes(FPR,TPR),data=tss,shape=21,size=2,fill="grey")+
+  geom_point(aes(FPR,TPR),data=ts2,size=2,col="blue")+
+  geom_abline(aes(slope=1,intercept=0),linetype=2)+
+  facet_grid(factor(What,levels=c("1/Lmean","LCC","BH","LBSPR","LIME"))~Species)+
+  theme_custom()+
+  theme(legend.position="bottom")+
+  scale_x_continuous(breaks=c(  0.5,1))+
+  scale_y_continuous(breaks=c(0,0.5,1)) 
+```
+
+**Figure `r iFig=iFig+1; iFig`.** ROC curves with reference level indicated.
+
+```{r, skill}
+load(file.path("../data/results","lhat.RData"))
+
+x=subset(lhat,Scenario==unique(Scenario)[1]&What==unique(What)[1]&
+              Species ==unique(Species)[1]&CV==unique(CV)[1]&iter==1)
+
+skill=mdply(data.frame(Lag=0:5),function(Lag) {
+  ddply(subset(lhat, year %in% 60:120 & !is.na(FFMSY) & !is.na(data)), .(Species,What,Scenario,CV,iter), 
+        function(x) {
+          n=length(x$FFMSY)
+          if(Lag==0) tryIt(skillSummary( x$FFMSY>1,           x$data))
+            else     tryIt(skillSummary( x$FFMSY[1:(n-Lag)]>1,x$data[(Lag+1):n]))})})
+rank=ddply(skill,.(What), with,  data.frame(score=mean(AUC,na.rm=TRUE)))  
+skill=transform(skill,Scenario=factor(Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                               labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100")),
+                      What    =factor(What,    levels=ac(rank[rev(order(rank[,2])),1]),
+                                               labels=ac(rank[rev(order(rank[,2])),1]))) 
+
+save(skill,lhat,file=file.path("../data/results","skill.RData"))
+```
+
+```{r, lag}
+rank=ddply(skill,.(What,Species,Lag), with,  data.frame(score=mean(AUC,na.rm=TRUE)))  
+
+ggplot(rank)+
+  geom_point(aes(Lag,score))+
+  facet_grid(Species~What) 
+```
+
+```{r, fig_7, fig.height=10,fig.width=16}
+dat=ddply(subset(skill,Lag==1), .(Species,What,Scenario,CV,Lag), with, data.frame(AUC=median(AUC,na.rm=TRUE))) 
+
+rank=ddply(skill,.(What), with,  data.frame(score=median(AUC,na.rm=TRUE)))  
+dat =transform(dat,What=factor(What,levels=ac(rank[rev(order(rank[,"score"])),1]),
+                                              labels=ac(rank[rev(order(rank[,"score"])),1])))
+  
+fig_7=ggplot(dat) + 
+  geom_rect(data=aucCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75) +  
+  geom_point(aes(x=Scenario, y=AUC, col=Scenario), size=3) +
+  geom_hline(aes(yintercept=AUC), col="blue", data=subset(dat, Scenario=="Reference")) +
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE) +
+  ylab("AUC (Area Under the Receiver Operating Characteristic Curve)") +
+  xlab("Simulation Scenario") +
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.6,0.7,0.9)))+
+  scale_y_continuous(limits=c(0.4,1.02), breaks=c(0.6,0.7,0.9))+
+  scale_fill_manual(values=aucCol) +
+  scale_colour_viridis_d(option="C", end=0.9)+
+  theme_custom(angle.x=45)+
+  theme(legend.position="bottom")
+
+fig_7
+
+ggsave(file.path("../tex/fig_7.png"), fig_7, width=14, height=10, dpi=300)
+```
+
+**Figure `r iFig=iFig+1; iFig`.** Summary of area under the ROC curves
+
+```{r, bias, fig.width=10, fig.height=12}
+ggplot(data=skill)+ 
+  facet_grid(Species~What,scale="free", labeller=label_parsed)+
+  geom_density_ridges_gradient(
+                    aes(x=ref, y=Scenario, fill=stat(x)),
+                    adjust=0.2,
+                    rel_min_height=0.01,
+                    bandwidth=0.1,
+                    quantile_lines=TRUE,
+                    quantiles=c(0.5),
+                    alpha=0.6, scale=2)+
+  scale_x_continuous(limits=c(0,3.0),breaks=c(0,1,2))+
+  scale_fill_gradientn("",colours=c("orange", "green","orange"),
+                       values=scales::rescale(c(0, 0.9, 1.1, 3)))+
+  geom_vline(aes(xintercept=1.0), linetype="solid", col="blue",size=1)+
+  theme_ridges()+
+  labs(x="Ratio", 
+       y="Scenario")+
+  theme_custom(0.8)+
+  theme(legend.position="bottom",
+        panel.spacing=unit(0.1, "lines")) 
+```
+
+**Figure `r iFig=iFig+1; iFig`.** Bias
+
+```{r, skill2}
+#dat=subset(lhat, year %in% 60:120 & !is.na(FFMSY) & !is.na(data)&Species=="Sprat"&What=="1/Lmean"&CV==0.3&Scenario=="h=0.9"&iter==1)
+
+skill2=mdply(data.frame(Lag=0:5),function(Lag) {
+  ddply(subset(lhat, year %in% 60:120 & !is.na(FFMSY) & !is.na(data)), .(Species,What,Scenario,CV,iter), 
+        function(x) {
+          n=length(x$FFMSY)
+          if(Lag==0) tryIt(skillSummary( x$FFMSY>1,           x$data,           reference=1))
+            else     tryIt(skillSummary( x$FFMSY[1:(n-Lag)]>1,x$data[(Lag+1):n],reference=1))})})
+rank2=ddply(skill2,.(What), with,  data.frame(score=mean(AUC,na.rm=TRUE)))  
+skill2=transform(skill2,
+                 Scenario=factor(Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                          labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100")),
+                 What    =factor(What,    levels=ac(rank[rev(order(rank[,2])),1]),
+                                          labels=ac(rank[rev(order(rank[,2])),1])))
+```
+
+```{r, fig_8a, fig.width=12, fig.height=12}
+dat=ddply(skill2, .(Scenario,Species,What,CV), with, data.frame(TSS=median(TSS,na.rm=TRUE)))
+
+dt2=subset(dat,Scenario=="Reference"&CV==0.3&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt3=subset(dat,Scenario=="Reference"&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt2=merge(dt3[,c("Species","Scenario","CV","What")],
+          dt2[,c("Species","Scenario","What","TSS")],all.x=TRUE)
+
+theme_set(theme_custom())
+fig_8a=ggplot(subset(dat,What%in%c("LBSPR","1/Lmean")))+ 
+  geom_rect(data=tssCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75)+
+  geom_point(aes(x=Scenario,TSS,col=Scenario),size=4)+
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE)+
+  geom_hline(aes(yintercept=TSS),col="blue",data=dt2)+
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.4,1.1), breaks=c(0.0,0.2,0.4,0.6))+
+  scale_fill_manual("Skill",values=tssCol)+
+  scale_colour_viridis_d(option="C",end=0.9)+  
+      labs(title="Proxies", x="", y="")+
+  theme_custom()+
+  theme(axis.text.x.bottom=element_blank()) 
+      
+fig_8a
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, analytically 
+
+
+```{r, fig_8b, fig.width=12, fig.height=12}
+load(file.path("../data/results","skill.RData"))
+
+dat=ddply(skill, .(Scenario,Species,What,CV), with, data.frame(TSS=median(TSS,na.rm=TRUE)))
+
+#dat$Scenario=factor(dat$Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+#                                 labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100"))
+
+dt2=subset(dat,Scenario=="Reference"&CV==0.3&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt3=subset(dat,Scenario=="Reference"&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt2=merge(dt3[,c("Species","Scenario","CV","What")],
+          dt2[,c("Species","Scenario","What","TSS")],all.x=TRUE)
+
+fig_8b=ggplot(subset(dat,What%in%c("LBSPR","1/Lmean")))+ 
+  geom_rect(data=tssCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75)+
+  geom_point(aes(x=Scenario,TSS,col=Scenario),size=4)+
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE)+
+  geom_hline(aes(yintercept=TSS),col="blue",data=dt2)+
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+   
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.4,1.1), breaks=c(0.0,0.2,0.4,0.6))+
+  scale_fill_manual("Skill",values=tssCol)+
+  scale_colour_viridis_d(option="C",end=0.9)+  
+      labs(title="Calibrated", x="", y="")+
+  theme_custom()+
+  theme(axis.text.x.bottom=element_blank()) 
+  
+fig_8b
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, tuned
+
+
+```{r, trend}
+trend3=ddply(subset(lhat,year%in%90:110,!is.na(FFMSY)&!is.na(data)), 
+             .(Species,What,Scenario,CV,iter), with, 
+        data.frame(om=diff(rollmean(FFMSY,3)), mp=diff(rollmean(data,3))))
+
+trend5=ddply(subset(lhat,year%in%90:110,!is.na(FFMSY)&!is.na(data)), 
+             .(Species,What,Scenario,CV,iter), with, 
+        data.frame(om=diff(rollmean(FFMSY,5)), mp=diff(rollmean(data,5))))
+
+save(trend3,file=file.path("../data/results","trend3.RData"))
+save(trend5,file=file.path("../data/results","trend5.RData"))
+```
+
+
+```{r, fig.width=12, fig.height=12}
+load(file.path("../data/results","skill.RData"))
+
+tss=ddply(subset(skill, Lag==1&What%in%c("1/Lmean","LCC","BH","LBSPR","LIME")), 
+          .(Species,Scenario,CV,What,iter), with, data.frame(TSS=TSS[min(abs(ref-1))==abs(ref-1)][1]))
+tss$Scenario=factor(tss$Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                    labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100"))
+rank=ddply(tss,.(What), with,  
+  data.frame(score=mean(TSS,na.rm=TRUE)))  
+tss$What=factor(tss$What,levels=ac(rank[rev(order(rank[,2])),1]),
+                         labels=ac(rank[rev(order(rank[,2])),1]))
+
+ ggplot(tss)+
+  geom_boxplot(aes(x=Scenario,
+                   TSS,fill=CV),outlier.shape=NA)+
+  geom_boxplot(aes(x=Scenario,
+                   TSS,fill=CV),outlier.shape=NA)+
+  geom_hline(aes(yintercept=0.0),linetype=1)+ 
+  geom_hline(aes(yintercept=0.5),linetype=2)+ 
+  facet_grid(What~Species)+
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.25,1), breaks=c(0,0.5,1))+
+  scale_fill_manual(values=c("blue","white","red"))+
+  theme_custom(angle.x=45)
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, analytically
+
+```{r, fig.width=12, fig.height=12}
+skill2=ddply(subset(lhat,year%in%60:120,!is.na(FFMSY)&!is.na(data/l115)), 
+             .(Species,What,Scenario,CV,iter), with, tryIt(rocFn(FFMSY>1,data/l115))) 
+skill2=transform(skill2,TSS=TPR-FPR)
+
+tss=ddply(subset(skill2, What%in%c("1/Lmean","LCC","BH","LBSPR","LIME")), 
+          .(Species,Scenario,CV,What,iter), with, data.frame(TSS=TSS[min(abs(ind-1))==abs(ind-1)][1]))
+tss$Scenario=factor(tss$Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                 labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100"))
+rank=ddply(tss,.(What), with,  
+  data.frame(score=mean(TSS,na.rm=TRUE)))  
+tss$What=factor(tss$What,levels=ac(rank[rev(order(rank[,2])),1]),
+                         labels=ac(rank[rev(order(rank[,2])),1]))
+
+ggplot(tss)+  
+  geom_boxplot(aes(x=Scenario,TSS,fill=CV),outlier.shape=NA)+
+  geom_boxplot(aes(x=Scenario,TSS,fill=CV),outlier.shape=NA)+
+  geom_hline(aes(yintercept=0.0),linetype=1)+ 
+  geom_hline(aes(yintercept=0.5),linetype=2)+ 
+  facet_grid(What~Species)+
+  ylab("TSS")+
+  theme_custom(angle.x=45)+
+  scale_y_continuous(limits=c(-0.25,1), breaks=c(0,0.5,1))+
+  scale_fill_manual(values=c("blue","white","red"))+  
+      labs(title="", x="", y="")
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, relative, 115
+
+```{r, fig_8-110, fig.width=12, fig.height=12}
+dat=ddply(tss,  .(Scenario,Species,What,CV), with, data.frame(TSS=median(TSS,na.rm=TRUE))) 
+
+dt2=subset(dat,Scenario=="Reference Case"&CV==0.3&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt3=subset(dat,Scenario=="Reference Case"&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+
+
+dt2=merge(dt3[,c("Species","Scenario","CV","What")],
+          dt2[,c("Species","Scenario","What","TSS")],all.x=TRUE)
+
+ggplot(subset(dat,What%in%c("LBSPR","1/Lmean")))+ 
+  geom_rect(data=tssCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75)+
+  geom_point(aes(x=Scenario,TSS,col=Scenario),size=4)+
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE)+
+  #geom_hline(aes(yintercept=0.0),linetype=1)+ 
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+
+  geom_hline(aes(yintercept=TSS),col="blue",data=dt2)+
+  theme_custom()+
+  theme(axis.text.x.bottom=element_blank())+
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.4,1.1), breaks=c(0.0,0.2,0.4,0.6))+
+  scale_fill_manual("Skill",values=tssCol)+
+  scale_colour_viridis_d(option="C",end=0.9)+  
+      labs(title="", x="", y="")
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, relative, 115
+
+
+```{r, fig.width=12, fig.height=12}
+skill3=ddply(subset(lhat,year%in%60:120,!is.na(FFMSY)&!is.na(data/l80)), 
+             .(Species,What,Scenario,CV,iter), with, tryIt(rocFn(FFMSY>1,data/l80))) 
+skill3=transform(skill3,TSS=TPR-FPR)
+
+tss=ddply(subset(skill3, What%in%c("1/Lmean","LCC","BH","LBSPR","LIME")), 
+          .(Species,Scenario,CV,What,iter), with, data.frame(TSS=TSS[min(abs(ind-1))==abs(ind-1)][1]))
+tss$Scenario=factor(tss$Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                 labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100"))
+rank=ddply(tss,.(What), with,  
+  data.frame(score=mean(TSS,na.rm=TRUE)))  
+tss$What=factor(tss$What,levels=ac(rank[rev(order(rank[,2])),1]),
+                         labels=ac(rank[rev(order(rank[,2])),1]))
+
+ggplot(tss)+  
+  geom_boxplot(aes(x=Scenario,TSS,fill=CV),outlier.shape=NA)+
+  geom_boxplot(aes(x=Scenario,TSS,fill=CV),outlier.shape=NA)+
+  geom_hline(aes(yintercept=0.0),linetype=1)+ 
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+   
+  geom_hline(aes(yintercept=TSS),col="blue",data=
+               subset(dat,Scenario=="Reference Case"&CV==0.3&What%in%c("LBSPR","1/Lmean"))[,c(2,3,5)])+
+  facet_grid(What~Species)+
+  ylab("TSS")+
+  theme_custom(angle.x=45)+
+  scale_y_continuous(limits=c(-0.25,1), breaks=c(0,0.5,1))+
+  scale_fill_manual(values=c("blue","white","red"))
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, relative, 80
+
+```{r, fig_8c, fig.width=12, fig.height=12}
+dat=ddply(tss,  .(Scenario,Species,What,CV), with, data.frame(TSS=median(TSS,na.rm=TRUE))) 
+
+
+dt2=subset(dat,Scenario=="Reference Case"&CV==0.3&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt3=subset(dat,Scenario=="Reference Case"&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+
+
+dt2=merge(dt3[,c("Species","Scenario","CV","What")],
+          dt2[,c("Species","Scenario","What","TSS")],all.x=TRUE)
+
+fig_8c=ggplot(subset(dat,What%in%c("LBSPR","1/Lmean")))+ 
+  geom_rect(data=tssCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75)+
+  geom_point(aes(x=Scenario,TSS,col=Scenario),size=4)+
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE)+
+  #geom_hline(aes(yintercept=0.0),linetype=1)+ 
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+   
+  geom_hline(aes(yintercept=TSS),col="blue",data=dt2)+
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.4,1.1), breaks=c(0.0,0.2,0.4,0.6))+
+  scale_fill_manual("Skill",values=tssCol)+
+  scale_colour_viridis_d(option="C",end=0.9)+  
+      labs(title="Reference Year", x="", y="")+
+  theme_custom()+
+  theme(axis.text.x.bottom=element_blank()) 
+  
+fig_8c
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, relative, 80
+
+
+```{r, fig_8d, fig.width=12, fig.height=12}
+load(file.path("../data/results","trend3.RData"))
+load(file.path("../data/results","trend5.RData"))
+
+auc=ddply(trend3,.(Species,What,Scenario,CV), with,  
+  data.frame(auc=pROC:::auc(om>0,mp)))
+
+tss=ddply(subset(trend3,
+                     What%in%c("LCC","BH","LIME","LBSPR","1/Lmean")),
+           .(Species,Scenario,CV,What,iter), with,  {
+ rtn=data.frame(roc2(om+1,mp+1))
+ 
+ #data.frame(tss=with(rtn[abs(rtn$reference-1)==min(abs(rtn$reference-1)),],TPR-FPR))
+ 
+ with(rtn, data.frame(
+   tss    =(TPR-FPR)[abs(ind-1)==min(abs(rtn$ind-1))][1],
+   tss.opt=ind[max(TPR-FPR)==TPR-FPR][1],
+   ref.opt=max(TPR-FPR)))
+ })
+
+tss$Scenario=factor(tss$Scenario,levels=c("Base Case","h=0.9","Low M","Domed","Immature","n=100"),
+                                 labels=c("Reference","h=0.9","Low M","Domed","Immature","n=100"))
+
+dat=ddply(tss,  .(Scenario,Species,What,CV), with, data.frame(TSS=median(tss.opt,na.rm=TRUE)))
+
+dt2=subset(dat,Scenario=="Reference Case"&CV==0.3&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+dt3=subset(dat,Scenario=="Reference Case"&What%in%c("LBSPR","1/Lmean"))
+dt2$Scenario=ac(dt2$Scenario)
+
+dt2=merge(dt3[,c("Species","Scenario","CV","What")],
+          dt2[,c("Species","Scenario","What","TSS")],all.x=TRUE)
+
+fig_8d=ggplot(subset(dat,What%in%c("LBSPR","1/Lmean")))+ 
+  geom_rect(data=tssCat, 
+            aes(xmin=xmin, xmax=6.5, ymin=ymin, ymax=ymax, fill=quality),
+            alpha=0.75)+
+  geom_point(aes(x=Scenario,TSS,col=Scenario),size=4)+
+  facet_nested(Species~What+CV, nest_line=TRUE, solo_line=TRUE)+
+  geom_hline(aes(yintercept=y),linewidth=0.3,data=data.frame(y=c(0.0,0.2,0.4,0.6)))+   
+  geom_hline(aes(yintercept=TSS),col="blue",data=dt2)+
+  ylab("TSS")+
+  scale_y_continuous(limits=c(-0.4,1.1), breaks=c(0.0,0.2,0.4,0.6))+
+  scale_fill_manual("Skill",values=tssCol)+
+  scale_colour_viridis_d(option="C",end=0.9)+  
+      labs(title="Trend", x="", y="")+
+  theme_custom()+
+  theme(axis.text.x.bottom=element_blank()) 
+  
+fig_8d
+```
+
+**Figure `r iFig=iFig+1; iFig`.** True Skill Score, trend 5 years
+
+
+```{r, fig_8, fig.width=12, fig.height=12}
+fig_8a=fig_8a+theme( 
+    axis.title.x = element_blank(),      
+    axis.text.x  = element_blank(),      
+    axis.ticks.x = element_blank(),      
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank())
+fig_8b=fig_8b+theme(
+    axis.title.x = element_blank(),      
+    axis.text.x  = element_blank(),      
+    axis.ticks.x = element_blank(),      
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank())
+fig_8c=fig_8c+theme(
+    axis.title.x = element_blank(),      
+    axis.text.x  = element_blank(),      
+    axis.ticks.x = element_blank(),      
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank())
+fig_8d=fig_8d+theme(
+    axis.title.x = element_blank(),      
+    axis.text.x  = element_blank(),      
+    axis.ticks.x = element_blank(),      
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank())
+
+fig_8=ggarrange(fig_8a,fig_8c,fig_8b,fig_8d, common.legend=TRUE)
+
+ggsave(file.path("../tex/fig_8.png"), fig_8, width=12, height=12, dpi=300)
+```
+
+
+```{r, fig.width=12,fig.height=4}
+load(file.path("../data/results","lhat.RData")) 
+
+source("../R/skill.R")
+
+theme_set(theme_custom()) 
+
+object=subset(lhat,Species=="Pollack"&CV==0.3&Scenario=="Base Case"&What=="LBSPR"&iter%in%1:5)
+
+set.seed(6876)
+object$FFMSY=object$FFMSY*rlnorm(length(object$FFMSY),0,0.2)
+
+comp=skillPlot(subset(object,data>0.1),"FFMSY","data")
+
+comp
+
+ggsave(file.path("../tex/fig_6.png"), comp, width=12, height=4, dpi=300)
+```
+
+# References {#References}
+
+## Author information
+
+**Laurence Kell**. laurie@seaplusplus.co.uk
+
+## Acknowledgements
+
+## Software Versions
+
+* `r version$version.string`
+* FLCore:    `r packageVersion('FLCore')`
+* FLBRP:     `r packageVersion('FLBRP')`
+* FLasher:   `r packageVersion('FLasher')`
+* FLife:     `r packageVersion('FLife')`
+* mydas:     `r packageVersion('mydas')`
+* **Compiled**: `r date()`
+
